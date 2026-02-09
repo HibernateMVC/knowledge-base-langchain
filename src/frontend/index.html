@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr; /* 智能问答占2份，分析模块占1份 */
+            gap: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr; /* 小屏幕时变为单列 */
+            }
+        }
+
+        .panel {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .panel-title {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 500px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+            background-color: #fafafa;
+        }
+
+        .message {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+
+        .user-message {
+            background-color: #667eea;
+            color: white;
+            margin-left: auto;
+        }
+        .bot-message {
+            background-color: #f1f3f5;
+            color: #333;
+        }
+        
+        /* 分析模块样式 */
+        .analysis-container {
+            display: flex;
+            flex-direction: column;
+            height: 500px;
+        }
+        
+        .analysis-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            margin-bottom: 1rem;
+        }
+        
+        .analysis-item {
+            margin-bottom: 1.5rem;
+            padding: 0.75rem;
+            background-color: white;
+            border-radius: 5px;
+            border-left: 3px solid #667eea;
+        }
+        
+        .analysis-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+        
+        .analysis-data {
+            color: #555;
+            line-height: 1.5;
+        }
+        
+        .analysis-empty {
+            color: #999;
+            font-style: italic;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        #query-input {
+            flex: 1;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            position: relative;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        /* 发送按钮加载状态样式 */
+        .sending {
+            position: relative;
+            pointer-events: none;
+        }
+        
+        .sending::after {
+            content: "";
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            top: 50%;
+            left: 50%;
+            margin-left: -8px;
+            margin-top: -8px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        .sending span {
+            visibility: hidden;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .upload-section {
+            margin-top: 1rem;
+        }
+
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 5px;
+            padding: 2rem;
+            text-align: center;
+            margin-top: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background-color: #f0f4ff;
+        }
+
+        .sources {
+            margin-top: 1rem;
+            padding: 1rem;
+            background-color: #fff8e1;
+            border-left: 4px solid #ffc107;
+            border-radius: 5px;
+        }
+
+        .source-item {
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            background-color: white;
+            border-radius: 3px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .search-results {
+            margin-top: 1rem;
+        }
+
+        .result-item {
+            padding: 1rem;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            margin-bottom: 0.5rem;
+            background-color: #fafafa;
+        }
+
+        .result-score {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        /* 上传进度条样式 */
+        .upload-progress-container {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e3f2fd;
+            border-radius: 5px;
+        }
+        
+        .upload-progress-title {
+            font-weight: bold;
+            color: #1976d2;
+            margin-bottom: 5px;
+        }
+        
+        .upload-progress-file {
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+        
+        .progress-bar-container {
+            width: 100%;
+            background-color: #ddd;
+            border-radius: 5px;
+            margin-top: 5px;
+            height: 20px;
+        }
+        
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #4caf50;
+            border-radius: 5px;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>知识库系统</h1>
+            <p class="subtitle">基于通义千问和ElasticSearch的智能问答系统</p>
+        </header>
+
+        <div class="main-content">
+            <div class="panel">
+                <h2 class="panel-title">智能问答</h2>
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="message bot-message">
+                            您好！我是知识库助手，您可以问我任何问题，我会根据知识库中的信息为您解答。
+                        </div>
+                    </div>
+                    <div class="input-area">
+                        <input type="text" id="query-input" placeholder="请输入您的问题..." />
+                        <button id="send-btn">发送</button>
+                    </div>
+                </div>
+
+                <div class="sources" id="sources" style="display: none;">
+                    <h3>参考资料:</h3>
+                    <div id="sources-list"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2 class="panel-title">分析过程</h2>
+                <div class="analysis-container">
+                    <div class="analysis-content" id="analysis-content">
+                        <div class="analysis-empty">暂无分析过程，请先提出问题</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" style="grid-column: span 2;">
+                <h2 class="panel-title">知识库管理</h2>
+                
+                <div class="upload-section">
+                    <h3>上传文档</h3>
+                    <div class="upload-area" id="upload-area">
+                        <p>拖拽文件到此处或点击下方按钮上传</p>
+                        <input type="file" id="file-input" accept=".pdf,.docx,.txt" style="display: none;" multiple>
+                        <button id="select-file-btn">选择文件</button>
+                        <div id="file-info"></div>
+                    </div>
+                    <button id="upload-btn" disabled style="margin-top: 1rem;">上传到知识库</button>
+                </div>
+
+                <div class="search-section" style="margin-top: 2rem;">
+                    <h3>搜索知识库</h3>
+                    <input type="text" id="search-input" placeholder="请输入搜索关键词..." style="width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ddd; border-radius: 5px;" />
+                    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+                        <label for="reranker-toggle" style="margin-right: 10px;">启用BGE重排序:</label>
+                        <input type="checkbox" id="reranker-toggle" checked style="width: auto;">
+                    </div>
+                    <button id="search-btn">搜索</button>
+                    
+                    <div class="search-results" id="search-results" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API基础URL
+        var API_BASE_URL = 'http://localhost:8080';
+
+        // DOM元素
+        var chatMessages = document.getElementById('chat-messages');
+        var queryInput = document.getElementById('query-input');
+        var sendBtn = document.getElementById('send-btn');
+        var sourcesDiv = document.getElementById('sources');
+        var sourcesList = document.getElementById('sources-list');
+        var uploadArea = document.getElementById('upload-area');
+        var fileInput = document.getElementById('file-input');
+        var selectFileBtn = document.getElementById('select-file-btn');
+        var uploadBtn = document.getElementById('upload-btn');
+        var fileInfo = document.getElementById('file-info');
+        var searchInput = document.getElementById('search-input');
+        var searchBtn = document.getElementById('search-btn');
+        var searchResults = document.getElementById('search-results');
+
+        // 当前选中的文件
+        var selectedFiles = [];
+
+        // 全局锁定状态
+        var isProcessing = false;
+
+        // 锁定所有交互元素
+        function lockInterface() {
+            isProcessing = true;
+            sendBtn.disabled = true;
+            searchBtn.disabled = true;
+            selectFileBtn.disabled = true;
+            uploadBtn.disabled = true;
+            
+            // 临时禁用搜索输入框
+            searchInput.disabled = true;
+            queryInput.disabled = true;
+            
+            // 添加CSS样式指示正在进行操作
+            document.body.classList.add('processing');
+        }
+
+        // 解锁所有交互元素
+        function unlockInterface() {
+            isProcessing = false;
+            sendBtn.disabled = false;
+            searchBtn.disabled = false;
+            selectFileBtn.disabled = false;
+            uploadBtn.disabled = (selectedFiles.length === 0);
+            
+            // 恢复输入框
+            searchInput.disabled = false;
+            queryInput.disabled = false;
+            
+            // 移除CSS样式
+            document.body.classList.remove('processing');
+        }
+
+        // 发送消息到聊天框
+        function addMessage(message, isUser) {
+            if (typeof isUser === 'undefined') isUser = false;
+            var messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + (isUser ? 'user-message' : 'bot-message');
+            messageDiv.textContent = message;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // 显示分析过程\n        function displayAnalysis(structuredResponse) {\n            var analysisContent = document.getElementById('analysis-content');\n            \n            if (!structuredResponse || Object.keys(structuredResponse).length === 0) {\n                analysisContent.innerHTML = '<div class=\"analysis-empty\">暂无分析过程</div>';\n                return;\n            }\n            \n            var htmlContent = '';\n            \n            // 显示分步分析\n            if (structuredResponse.step_by_step_analysis) {\n                htmlContent += '<div class=\"analysis-item\">' +\n                    '<div class=\"analysis-title\">分步分析 (Step-by-step Analysis)</div>' +\n                    '<div class=\"analysis-data\">' + structuredResponse.step_by_step_analysis.replace(/\\n/g, '<br>') + '</div>' +\n                '</div>';\n            }\n            \n            // 显示推理摘要\n            if (structuredResponse.reasoning_summary) {\n                htmlContent += '<div class=\"analysis-item\">' +\n                    '<div class=\"analysis-title\">推理摘要 (Reasoning Summary)</div>' +\n                    '<div class=\"analysis-data\">' + structuredResponse.reasoning_summary + '</div>' +\n                '</div>';\n            }\n            \n            // 显示相关页面（如果存在原始搜索结果）\n            if (window.currentSearchResults && structuredResponse.relevant_pages && structuredResponse.relevant_pages.length > 0) {\n                var pages = structuredResponse.relevant_pages;\n                var pageDetails = [];\n                \n                // 遍历相关页面列表\n                for (var i = 0; i < pages.length; i++) {\n                    var page = pages[i];\n                    var found = false;\n                    \n                    // 在搜索结果中查找对应的文档\n                    for (var j = 0; j < window.currentSearchResults.length; j++) {\n                        var result = window.currentSearchResults[j];\n                        \n                        // 检查是否有页码信息\n                        if (result.metadata && result.metadata.page == page) {\n                            var fileName = result.metadata.filename || '未知文件';\n                            pageDetails.push('第'+page+'页 ('+fileName+')');\n                            found = true;\n                            break;\n                        }\n                    }\n                    \n                    // 如果没找到，尝试从ID中提取文件名信息\n                    if (!found) {\n                        for (var j = 0; j < window.currentSearchResults.length; j++) {\n                            var result = window.currentSearchResults[j];\n                            \n                            // 检查内容中是否包含页面号\n                            if (result.content && result.content.includes('/ ' + page + ' /')) {\n                                var fileName = result.metadata && result.metadata.filename ? result.metadata.filename : '未知文件';\n                                pageDetails.push('第'+page+'页 ('+fileName+')');\n                                found = true;\n                                break;\n                            }\n                        }\n                    }\n                    \n                    // 如果还是没找到，就只显示页码\n                    if (!found) {\n                        pageDetails.push('第'+page+'页');\n                    }\n                }\n                \n                htmlContent += '<div class=\"analysis-item\">' +\n                    '<div class=\"analysis-title\">相关页面 (Relevant Pages)</div>' +\n                    '<div class=\"analysis-data\">' + pageDetails.join(', ') + '</div>' +\n                '</div>';\n            } else if (structuredResponse.relevant_pages && structuredResponse.relevant_pages.length > 0) {\n                var pagesStr = structuredResponse.relevant_pages.join(', ');\n                htmlContent += '<div class=\"analysis-item\">' +\n                    '<div class=\"analysis-title\">相关页面 (Relevant Pages)</div>' +\n                    '<div class=\"analysis-data\">第 ' + pagesStr + ' 页</div>' +\n                '</div>';\n            }\n            \n            if (htmlContent === '') {\n                htmlContent = '<div class=\"analysis-empty\">暂无分析过程</div>';\n            }\n            \n            analysisContent.innerHTML = htmlContent;\n        }
+
+        // 显示加载状态
+        function showSendingState(buttonElement) {
+            buttonElement.disabled = true;
+            buttonElement.classList.add('sending');
+            buttonElement.innerHTML = '<span>发送</span>';
+            return buttonElement.innerHTML; // 返回原始文本以便恢复
+        }
+
+        // 恢复按钮状态
+        function restoreButtonState(buttonElement, originalText) {
+            buttonElement.disabled = false;
+            buttonElement.classList.remove('sending');
+            buttonElement.innerHTML = originalText || '发送'; // 如果没有传入原始文本，则使用默认文本
+        }
+
+        // 显示上传进度
+        function showUploadProgress(totalFiles, currentFileIndex, filename) {
+            var progressPercentage = Math.round(((currentFileIndex + 1) / totalFiles) * 100);
+            var progressHTML = '<div class="upload-progress-container">' +
+                              '<div class="upload-progress-title">上传进度</div>' +
+                              '<div class="upload-progress-file">正在处理: ' + filename + '</div>' +
+                              '<div class="upload-progress-file">文件 ' + (currentFileIndex + 1) + ' / ' + totalFiles + '</div>' +
+                              '<div class="progress-bar-container">' +
+                              '<div class="progress-bar-fill" style="width: ' + progressPercentage + '%"></div>' +
+                              '</div>' +
+                              '<div class="upload-progress-file">' + progressPercentage + '% 完成</div>' +
+                              '</div>';
+            fileInfo.innerHTML += progressHTML;
+        }
+
+        // 发送消息到后端并显示响应
+        function chatWithKB(userMessage) {
+            if (isProcessing) {
+                alert('系统正在处理其他请求，请稍后再试。');
+                return;
+            }
+            
+            var startTime = new Date().getTime();
+            
+            // 锁定界面
+            lockInterface();
+            
+            // 更新发送按钮状态
+            showSendingState(sendBtn);
+            
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', API_BASE_URL + '/chat/', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var response = JSON.parse(xhr.responseText);
+                    
+                    // 保存搜索结果用于显示相关页面信息
+                    window.currentSearchResults = response.search_results;
+                    
+                    // 只在聊天框显示最终答案
+                    addMessage(response.answer, false);
+                    
+                    // 在独立的分析模块中显示分析过程
+                    fixedDisplayAnalysis(response.structured_response);
+                    
+                    // 显示参考资料
+                    if (response.sources && response.sources.length > 0) {
+                        sourcesList.innerHTML = '';
+                        for (var i = 0; i < response.sources.length; i++) {
+                            var source = response.sources[i];
+                            // 显示得分信息
+                            var scoreInfo = '相似度: ' + (source.score || 0).toFixed(4);
+                            
+                            var sourceItem = document.createElement('div');
+                            sourceItem.className = 'source-item';
+                            sourceItem.innerHTML = 
+                                '<strong>来源 ' + (i + 1) + ':</strong><br>' +
+                                '<small>' + source.content.substring(0, 200) + '...</small><br>' +
+                                '<span class="result-score">' + scoreInfo + '</span>';
+                            sourcesList.appendChild(sourceItem);
+                        }
+                        sourcesDiv.style.display = 'block';
+                    } else {
+                        sourcesDiv.style.display = 'none';
+                    }
+                } else if (xhr.readyState === 4) {
+                    console.error('聊天错误:', xhr.status);
+                    addMessage('抱歉，回答生成失败，请稍后再试。', false);
+                }
+                
+                // 恢复发送按钮状态
+                if(sendBtn) {
+                    restoreButtonState(sendBtn, '发送');
+                }
+                
+                // 解锁界面
+                unlockInterface();
+            };
+            var requestData = {
+                question: userMessage,
+                top_k: 5,  // 默认值
+                use_reranker: true,  // 默认值
+                reranker_model: 'default'  // 默认值
+            };
+            xhr.send(JSON.stringify(requestData));
+        }
+
+        // 上传文件到知识库
+        function uploadFiles(files) {
+            if (isProcessing) {
+                alert('系统正在处理其他请求，请稍后再试。');
+                return;
+            }
+            
+            var startTime = new Date().getTime();
+            
+            // 锁定界面
+            lockInterface();
+            
+            var formData = new FormData();
+            
+            // 使用批量上传接口
+            for (var i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
+
+            // 更新上传按钮状态
+            showSendingState(uploadBtn);
+            
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', API_BASE_URL + '/upload_batch/', true);
+            
+            // 显示初始上传提示
+            var totalFiles = files.length;
+            fileInfo.innerHTML = '<div class="upload-progress-container">' +
+                               '<div class="upload-progress-title">上传进度</div>' +
+                               '<div class="upload-progress-file">正在上传 ' + totalFiles + ' 个文件...</div>' +
+                               '<div class="progress-bar-container">' +
+                               '<div class="progress-bar-fill" style="width: 30%"></div>' +
+                               '</div>' +
+                               '<div class="upload-progress-file">准备上传</div>' +
+                               '</div>';
+            
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 2) {
+                    // 请求已发送，更新进度
+                    var progressElements = document.querySelectorAll('.upload-progress-file');
+                    if (progressElements.length > 0) {
+                        progressElements[0].textContent = '文件上传中...';
+                    }
+                    var progressBarFill = document.querySelector('.progress-bar-fill');
+                    if (progressBarFill) {
+                        progressBarFill.style.width = '60%';
+                        if (progressElements.length > 1) {
+                            progressElements[progressElements.length - 1].textContent = '60% 完成';
+                        }
+                    }
+                } else if (xhr.readyState === 4 && xhr.status === 200) {
+                    // 上传完成
+                    var progressBarFill = document.querySelector('.progress-bar-fill');
+                    if (progressBarFill) {
+                        progressBarFill.style.width = '100%';
+                        var progressElements = document.querySelectorAll('.upload-progress-file');
+                        if (progressElements.length > 0) {
+                            progressElements[progressElements.length - 1].textContent = '100% 完成';
+                        }
+                    }
+                    
+                    var response = JSON.parse(xhr.responseText);
+                    
+                    // 显示批量上传结果
+                    var successCount = 0;
+                    var failureCount = 0;
+                    
+                    if (response.results) {
+                        for (var j = 0; j < response.results.length; j++) {
+                            if (response.results[j].status === 'success') {
+                                successCount++;
+                            } else {
+                                failureCount++;
+                            }
+                        }
+                        
+                        var message = '批量上传完成！\n成功: ' + successCount + ' 个文件\n';
+                        if (failureCount > 0) {
+                            message += '失败: ' + failureCount + ' 个文件';
+                        }
+                        // 短暂显示成功信息后清除进度条
+                        setTimeout(function() {
+                            fileInfo.innerHTML = '<p>✅ ' + message.replace(/\n/g, '<br>') + '</p>';
+                            // 恢复上传按钮状态
+                            restoreButtonState(uploadBtn, '上传到知识库');
+                            setTimeout(function() {
+                                fileInfo.innerHTML = '';
+                                selectedFiles = [];
+                                uploadBtn.disabled = true;
+                            }, 3000); // 3秒后清除成功信息
+                        }, 500);
+                    } else {
+                        alert('文件 ' + response.filename + ' 上传成功！');
+                        fileInfo.innerHTML = '';
+                        // 恢复上传按钮状态
+                        restoreButtonState(uploadBtn, '上传到知识库');
+                        selectedFiles = [];
+                        uploadBtn.disabled = true;
+                    }
+                } else if (xhr.readyState === 4) {
+                    console.error('上传错误:', xhr.status);
+                    // 显示错误信息
+                    var progressElements = document.querySelectorAll('.upload-progress-file');
+                    if (progressElements.length > 0) {
+                        progressElements[0].textContent = '上传失败!';
+                    }
+                    var progressBarFill = document.querySelector('.progress-bar-fill');
+                    if (progressBarFill) {
+                        progressBarFill.style.backgroundColor = '#f44336';
+                        progressBarFill.style.width = '100%';
+                        if (progressElements.length > 0) {
+                            progressElements[progressElements.length - 1].textContent = '上传失败，请重试';
+                        }
+                    }
+                    
+                    setTimeout(function() {
+                        fileInfo.innerHTML = '';
+                        // 恢复上传按钮状态
+                        restoreButtonState(uploadBtn, '上传到知识库');
+                        alert('上传失败，请稍后再试');
+                    }, 2000);
+                }
+                
+                if (xhr.readyState === 4) {
+                    // 无论成功还是失败，都要解锁界面
+                    setTimeout(unlockInterface, 1000); // 稍微延迟让用户看到结果
+                }
+            };
+            xhr.send(formData);
+        }
+
+        // 事件监听器
+        sendBtn.addEventListener('click', function() {
+            if (!isProcessing) {
+                var question = queryInput.value.trim();
+                if (question) {
+                    addMessage(question, true);
+                    queryInput.value = '';
+                    chatWithKB(question);
+                }
+            }
+        });
+
+        queryInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !isProcessing) {
+                sendBtn.click();
+            }
+        });
+
+        selectFileBtn.addEventListener('click', function() {
+            if (!isProcessing) {
+                fileInput.click();
+            }
+        });
+
+        fileInput.addEventListener('change', function(e) {
+            if (!isProcessing) {
+                selectedFiles = Array.prototype.slice.call(e.target.files);
+                if (selectedFiles.length > 0) {
+                    var fileHtml = '<p>已选择 ' + selectedFiles.length + ' 个文件:</p><ul>';
+                    for (var i = 0; i < selectedFiles.length; i++) {
+                        var f = selectedFiles[i];
+                        fileHtml += '<li>' + f.name + ' (' + (f.size / 1024 / 1024).toFixed(2) + ' MB)</li>';
+                    }
+                    fileHtml += '</ul>';
+                    fileInfo.innerHTML = fileHtml;
+                    uploadBtn.disabled = false;
+                } else {
+                    fileInfo.innerHTML = '';
+                    uploadBtn.disabled = true;
+                }
+            }
+        });
+
+        uploadBtn.addEventListener('click', function() {
+            if (!isProcessing && selectedFiles.length > 0) {
+                uploadFiles(selectedFiles);
+            }
+        });
+
+        searchBtn.addEventListener('click', function() {
+            if (!isProcessing) {
+                var query = searchInput.value.trim();
+                if (query) {
+                    searchKB(query);
+                }
+            }
+        });
+
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !isProcessing) {
+                searchBtn.click();
+            }
+        });
+
+        // 拖拽上传功能
+        uploadArea.addEventListener('dragover', function(e) {
+            if (!isProcessing) {
+                e.preventDefault();
+                uploadArea.className = 'upload-area dragover';
+            }
+        });
+
+        uploadArea.addEventListener('dragleave', function(e) {
+            if (!isProcessing) {
+                e.preventDefault();
+                uploadArea.className = 'upload-area';
+            }
+        });
+
+        uploadArea.addEventListener('drop', function(e) {
+            if (!isProcessing) {
+                e.preventDefault();
+                uploadArea.className = 'upload-area';
+                selectedFiles = Array.prototype.slice.call(e.dataTransfer.files).filter(function(file) {
+                    var ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+                    return ['.pdf', '.docx', '.txt'].indexOf(ext) >= 0;
+                });
+                
+                if (selectedFiles.length > 0) {
+                    var fileHtml = '<p>已选择 ' + selectedFiles.length + ' 个文件:</p><ul>';
+                    for (var i = 0; i < selectedFiles.length; i++) {
+                        var f = selectedFiles[i];
+                        fileHtml += '<li>' + f.name + ' (' + (f.size / 1024 / 1024).toFixed(2) + ' MB)</li>';
+                    }
+                    fileHtml += '</ul>';
+                    fileInfo.innerHTML = fileHtml;
+                    uploadBtn.disabled = false;
+                }
+            }
+        });
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('知识库系统前端界面加载完成');
+        });
+        
+        // 为处理中的状态添加CSS样式
+        var style = document.createElement('style');
+        style.innerHTML = `
+            body.processing {
+                pointer-events: none;
+            }
+            
+            .processing .panel {
+                opacity: 0.6;
+                filter: blur(1px);
+            }
+            
+            .processing button:not(.loading *) {
+                opacity: 0.6;
+                pointer-events: none;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // 修复后的分析显示函数
+        function fixedDisplayAnalysis(structuredResponse) {
+            var analysisContent = document.getElementById('analysis-content');
+            
+            if (!structuredResponse || Object.keys(structuredResponse).length === 0) {
+                analysisContent.innerHTML = '<div class="analysis-empty">暂无分析过程</div>';
+                return;
+            }
+            
+            var htmlContent = '';
+            
+            // 显示分步分析
+            if (structuredResponse.step_by_step_analysis) {
+                htmlContent += '<div class="analysis-item">' +
+                    '<div class="analysis-title">分步分析 (Step-by-step Analysis)</div>' +
+                    '<div class="analysis-data">' + structuredResponse.step_by_step_analysis.replace(/\\n/g, '<br>') + '</div>' +
+                '</div>';
+            }
+            
+            // 显示推理摘要
+            if (structuredResponse.reasoning_summary) {
+                htmlContent += '<div class="analysis-item">' +
+                    '<div class="analysis-title">推理摘要 (Reasoning Summary)</div>' +
+                    '<div class="analysis-data">' + structuredResponse.reasoning_summary + '</div>' +
+                '</div>';
+            }
+            
+            // 显示相关页面（如果存在原始搜索结果）
+            if (window.currentSearchResults && structuredResponse.relevant_pages && structuredResponse.relevant_pages.length > 0) {
+                var pages = structuredResponse.relevant_pages;
+                var pageDetails = [];
+                
+                // 遍历相关页面列表
+                for (var i = 0; i < pages.length; i++) {
+                    var page = pages[i];
+                    var found = false;
+                    
+                    // 在搜索结果中查找对应的文档
+                    for (var j = 0; j < window.currentSearchResults.length; j++) {
+                        var result = window.currentSearchResults[j];
+                        
+                        // 检查是否有页码信息
+                        if (result.metadata && result.metadata.page == page) {
+                            var fileName = result.metadata.filename || '未知文件';
+                            pageDetails.push('第'+page+'页 ('+fileName+')');
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    // 如果没找到，尝试从内容中查找页面信息
+                    if (!found) {
+                        for (var j = 0; j < window.currentSearchResults.length; j++) {
+                            var result = window.currentSearchResults[j];
+                            
+                            // 检查内容中是否包含页面号
+                            if (result.content && (result.content.indexOf('/ ' + page + ' /') !== -1 || 
+                                                  result.content.indexOf('第 ' + page + ' 页') !== -1 ||
+                                                  result.content.indexOf(page + ' / ') !== -1)) {
+                                var fileName = result.metadata && result.metadata.filename ? result.metadata.filename : '未知文件';
+                                pageDetails.push('第'+page+'页 ('+fileName+')');
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 如果还是没找到，就只显示页码
+                    if (!found) {
+                        pageDetails.push('第'+page+'页');
+                    }
+                }
+                
+                htmlContent += '<div class="analysis-item">' +
+                    '<div class="analysis-title">相关页面 (Relevant Pages)</div>' +
+                    '<div class="analysis-data">' + pageDetails.join(', ') + '</div>' +
+                '</div>';
+            } else if (structuredResponse.relevant_pages && structuredResponse.relevant_pages.length > 0) {
+                var pagesStr = structuredResponse.relevant_pages.join(', ');
+                htmlContent += '<div class="analysis-item">' +
+                    '<div class="analysis-title">相关页面 (Relevant Pages)</div>' +
+                    '<div class="analysis-data">第 ' + pagesStr + ' 页</div>' +
+                '</div>';
+            }
+            
+            if (htmlContent === '') {
+                htmlContent = '<div class="analysis-empty">暂无分析过程</div>';
+            }
+            
+            analysisContent.innerHTML = htmlContent;
+        }
+    </script>
+</body>
+</html>
