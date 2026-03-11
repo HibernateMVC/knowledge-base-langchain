@@ -133,6 +133,33 @@ class ElasticSearchClient:
             logger.error(f"添加文档失败: {str(e)}")
             raise
     
+    def bulk_add_documents(self, docs: List[Dict[str, Any]]) -> List[str]:
+        """批量添加文档到索引，显著减少网络往返"""
+        if not docs:
+            return []
+        try:
+            from elasticsearch import helpers
+            
+            actions = [
+                {
+                    "_index": self.index_name,
+                    "_source": {
+                        "content": doc["content"],
+                        "vector": doc["vector"],
+                        "metadata": doc.get("metadata", {}),
+                    },
+                }
+                for doc in docs
+            ]
+            
+            success, _ = helpers.bulk(self.es, actions)
+            logger.debug(f"批量添加文档成功: {success} 条")
+            # 目前调用方并未使用具体ID，这里返回与文档数量相同长度的占位ID列表
+            return [str(i) for i in range(success)]
+        except Exception as e:
+            logger.error(f"批量添加文档失败: {str(e)}")
+            raise
+    
     def search_by_vector(self, query_vector: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
         """基于向量相似度搜索"""
         try:
@@ -265,7 +292,7 @@ class ElasticSearchClient:
             # 按综合得分排序
             pre_rerank_results.sort(key=lambda x: x['hybrid_score'], reverse=True)
             
-            # 应用高兼容性重排序（如果启用且可用）
+            # 应用重排序（如果启用且可用）
             if use_reranker and get_high_comp_reranker is not None:
                 try:
                     reranker = get_high_comp_reranker()

@@ -4,7 +4,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import BaseLanguageModel, LanguageModelInput
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_core.outputs import GenerationChunk, LLMResult
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from langchain_core.runnables import RunnableConfig
 import dashscope
 from src.config.settings import Config
@@ -17,15 +17,26 @@ class QwenLLMWrapper(BaseLanguageModel[str]):
     model_name: str = Field(default=Config.QWEN_MODEL_NAME, description="模型名称")
     api_key: str = Field(default=Config.DASHSCOPE_API_KEY, description="API密钥")
     temperature: float = Field(default=0.7, description="温度参数")
-    max_tokens: int = Field(default=2000, description="最大token数")
-    
-    class Config:
-        """配置类"""
-        arbitrary_types_allowed = True
-    
+    max_tokens: int = Field(default=1000, description="最大token数")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        dashscope.api_key = self.api_key
+        
+    def model_post_init(self, __context):
+        """在模型初始化后设置DashScope API密钥"""
+        # 确保获取到实际值而不是FieldInfo
+        api_key = self.api_key
+        if hasattr(api_key, '__class__') and not isinstance(api_key, str):
+            api_key = Config.DASHSCOPE_API_KEY
+        dashscope.api_key = api_key
+
+    def _get_field_value(self, field_value, default_value):
+        """安全获取字段值，避免FieldInfo对象"""
+        if hasattr(field_value, '__class__') and not isinstance(field_value, (str, int, float, bool)):
+            return default_value
+        return field_value
         
     @property
     def _llm_type(self) -> str:
@@ -44,11 +55,15 @@ class QwenLLMWrapper(BaseLanguageModel[str]):
         
         for prompt in prompts:
             try:
+                model_name = self._get_field_value(self.model_name, Config.QWEN_MODEL_NAME)
+                temperature = self._get_field_value(self.temperature, 0.7)
+                max_tokens = self._get_field_value(self.max_tokens, 2000)
+                
                 response = dashscope.Generation.call(
-                    model=self.model_name,
+                    model=model_name,
                     prompt=prompt,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens
+                    temperature=temperature,
+                    max_tokens=max_tokens
                 )
                 
                 if response.status_code == 200:
@@ -77,11 +92,15 @@ class QwenLLMWrapper(BaseLanguageModel[str]):
         for prompt in prompts:
             try:
                 # DashScope目前不支持真正的流式输出，我们模拟单次输出
+                model_name = self._get_field_value(self.model_name, Config.QWEN_MODEL_NAME)
+                temperature = self._get_field_value(self.temperature, 0.7)
+                max_tokens = self._get_field_value(self.max_tokens, 2000)
+                
                 response = dashscope.Generation.call(
-                    model=self.model_name,
+                    model=model_name,
                     prompt=prompt,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens
+                    temperature=temperature,
+                    max_tokens=max_tokens
                 )
                 
                 if response.status_code == 200:
@@ -106,11 +125,15 @@ class QwenLLMWrapper(BaseLanguageModel[str]):
     ) -> str:
         """直接调用方法"""
         try:
+            model_name = self._get_field_value(self.model_name, Config.QWEN_MODEL_NAME)
+            temperature = self._get_field_value(self.temperature, 0.7)
+            max_tokens = self._get_field_value(self.max_tokens, 2000)
+            
             response = dashscope.Generation.call(
-                model=self.model_name,
+                model=model_name,
                 prompt=prompt,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens
+                temperature=temperature,
+                max_tokens=max_tokens
             )
             
             if response.status_code == 200:

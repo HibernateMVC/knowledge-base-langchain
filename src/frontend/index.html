@@ -328,6 +328,7 @@
                     <div class="input-area">
                         <input type="text" id="query-input" placeholder="请输入您的问题..." />
                         <button id="send-btn">发送</button>
+                        <button id="clear-history-btn" style="margin-left: 0.5rem; background-color: #f44336; color: white; padding: 0.75rem 1rem; border: none; border-radius: 5px; cursor: pointer;">清空对话</button>
                     </div>
                 </div>
 
@@ -396,40 +397,27 @@
 
         // 当前选中的文件
         var selectedFiles = [];
-
-        // 全局锁定状态
-        var isProcessing = false;
-
-        // 锁定所有交互元素
-        function lockInterface() {
-            isProcessing = true;
-            sendBtn.disabled = true;
-            searchBtn.disabled = true;
+        
+        // 独立的处理状态
+        var isUploading = false;
+        var isChatProcessing = false;
+        
+        // 锁定上传相关交互（不影响问答与搜索）
+        function lockUpload() {
+            isUploading = true;
             selectFileBtn.disabled = true;
             uploadBtn.disabled = true;
-            
-            // 临时禁用搜索输入框
-            searchInput.disabled = true;
-            queryInput.disabled = true;
-            
-            // 添加CSS样式指示正在进行操作
-            document.body.classList.add('processing');
+            fileInput.disabled = true;
+            uploadArea.classList.add('processing');
         }
-
-        // 解锁所有交互元素
-        function unlockInterface() {
-            isProcessing = false;
-            sendBtn.disabled = false;
-            searchBtn.disabled = false;
+        
+        // 解锁上传相关交互
+        function unlockUpload() {
+            isUploading = false;
             selectFileBtn.disabled = false;
+            fileInput.disabled = false;
             uploadBtn.disabled = (selectedFiles.length === 0);
-            
-            // 恢复输入框
-            searchInput.disabled = false;
-            queryInput.disabled = false;
-            
-            // 移除CSS样式
-            document.body.classList.remove('processing');
+            uploadArea.classList.remove('processing');
         }
 
         // 发送消息到聊天框
@@ -474,17 +462,49 @@
             fileInfo.innerHTML += progressHTML;
         }
 
+        // 生成或获取 session_id
+        function getSessionId() {
+            var sessionId = localStorage.getItem('kb_session_id');
+            if (!sessionId) {
+                sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('kb_session_id', sessionId);
+            }
+            return sessionId;
+        }
+        
+        // 清空对话历史
+        function clearChatHistory() {
+            if (confirm('确定要清空对话历史吗？')) {
+                var sessionId = getSessionId();
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', API_BASE_URL + '/chat/clear-history/?session_id=' + sessionId, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4 && xhr.status === 200) {
+                        chatMessages.innerHTML = '';
+                        sourcesList.innerHTML = '';
+                        sourcesDiv.style.display = 'none';
+                        document.getElementById('analysis-content').innerHTML = '<div class="analysis-empty">暂无分析过程</div>';
+                        alert('对话历史已清空');
+                    }
+                };
+                xhr.send();
+            }
+        }
+
         // 发送消息到后端并显示响应
         function chatWithKB(userMessage) {
-            if (isProcessing) {
-                alert('系统正在处理其他请求，请稍后再试。');
+            if (isChatProcessing) {
+                alert('系统正在生成回答，请稍后再试。');
                 return;
             }
             
             var startTime = new Date().getTime();
             
-            // 锁定界面
-            lockInterface();
+            // 标记聊天处理中，仅锁定聊天输入
+            isChatProcessing = true;
+            sendBtn.disabled = true;
+            queryInput.disabled = true;
             
             // 更新发送按钮状态
             showSendingState(sendBtn);
@@ -530,34 +550,34 @@
                     addMessage('抱歉，回答生成失败，请稍后再试。', false);
                 }
                 
-                // 恢复发送按钮状态
-                if(sendBtn) {
+                // 恢复发送按钮和输入框状态
+                if (sendBtn) {
                     restoreButtonState(sendBtn, '发送');
                 }
-                
-                // 解锁界面
-                unlockInterface();
+                isChatProcessing = false;
+                queryInput.disabled = false;
             };
             var requestData = {
                 question: userMessage,
                 top_k: 5,  // 默认值
                 use_reranker: true,  // 默认值
-                reranker_model: 'default'  // 默认值
+                reranker_model: 'default',  // 默认值
+                session_id: getSessionId()  // 添加 session_id
             };
             xhr.send(JSON.stringify(requestData));
         }
 
         // 上传文件到知识库
         function uploadFiles(files) {
-            if (isProcessing) {
+            if (isUploading) {
                 alert('系统正在处理其他请求，请稍后再试。');
                 return;
             }
             
             var startTime = new Date().getTime();
             
-            // 锁定界面
-            lockInterface();
+            // 锁定上传区域（不影响问答）
+            lockUpload();
             
             var formData = new FormData();
             
@@ -671,8 +691,8 @@
                 }
                 
                 if (xhr.readyState === 4) {
-                    // 无论成功还是失败，都要解锁界面
-                    setTimeout(unlockInterface, 1000); // 稍微延迟让用户看到结果
+                    // 无论成功还是失败，都要解锁上传区域
+                    setTimeout(unlockUpload, 1000); // 稍微延迟让用户看到结果
                 }
             };
             xhr.send(formData);
@@ -680,7 +700,7 @@
 
         // 事件监听器
         sendBtn.addEventListener('click', function() {
-            if (!isProcessing) {
+            if (!isChatProcessing) {
                 var question = queryInput.value.trim();
                 if (question) {
                     addMessage(question, true);
@@ -691,19 +711,27 @@
         });
 
         queryInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !isProcessing) {
+            if (e.key === 'Enter' && !isChatProcessing) {
                 sendBtn.click();
             }
         });
 
+        // 清空对话历史按钮事件监听
+        var clearHistoryBtn = document.getElementById('clear-history-btn');
+        if (clearHistoryBtn) {
+            clearHistoryBtn.addEventListener('click', function() {
+                clearChatHistory();
+            });
+        }
+
         selectFileBtn.addEventListener('click', function() {
-            if (!isProcessing) {
+            if (!isUploading) {
                 fileInput.click();
             }
         });
 
         fileInput.addEventListener('change', function(e) {
-            if (!isProcessing) {
+            if (!isUploading) {
                 selectedFiles = Array.prototype.slice.call(e.target.files);
                 if (selectedFiles.length > 0) {
                     var fileHtml = '<p>已选择 ' + selectedFiles.length + ' 个文件:</p><ul>';
@@ -722,43 +750,42 @@
         });
 
         uploadBtn.addEventListener('click', function() {
-            if (!isProcessing && selectedFiles.length > 0) {
+            if (!isUploading && selectedFiles.length > 0) {
                 uploadFiles(selectedFiles);
             }
         });
 
         searchBtn.addEventListener('click', function() {
-            if (!isProcessing) {
-                var query = searchInput.value.trim();
-                if (query) {
-                    searchKB(query);
-                }
+            // 搜索不受上传和聊天状态影响，仅在点击瞬间发起请求
+            var query = searchInput.value.trim();
+            if (query) {
+                searchKB(query);
             }
         });
 
         searchInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !isProcessing) {
+            if (e.key === 'Enter') {
                 searchBtn.click();
             }
         });
 
         // 拖拽上传功能
         uploadArea.addEventListener('dragover', function(e) {
-            if (!isProcessing) {
+            if (!isUploading) {
                 e.preventDefault();
                 uploadArea.className = 'upload-area dragover';
             }
         });
 
         uploadArea.addEventListener('dragleave', function(e) {
-            if (!isProcessing) {
+            if (!isUploading) {
                 e.preventDefault();
                 uploadArea.className = 'upload-area';
             }
         });
 
         uploadArea.addEventListener('drop', function(e) {
-            if (!isProcessing) {
+            if (!isUploading) {
                 e.preventDefault();
                 uploadArea.className = 'upload-area';
                 selectedFiles = Array.prototype.slice.call(e.dataTransfer.files).filter(function(file) {

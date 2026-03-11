@@ -30,6 +30,33 @@ LANGFUSE_ENABLED = False
 kb = LangChainEnhancedKnowledgeBase()
 kb.initialize()
 
+# 对话历史管理
+class ConversationManager:
+    """管理对话历史"""
+    def __init__(self, max_history: int = 10):
+        self.conversations: Dict[str, List[Dict[str, str]]] = {}
+        self.max_history = max_history
+    
+    def add_message(self, session_id: str, role: str, content: str):
+        """添加消息到对话历史"""
+        if session_id not in self.conversations:
+            self.conversations[session_id] = []
+        self.conversations[session_id].append({"role": role, "content": content})
+        # 保持历史记录在限制范围内
+        if len(self.conversations[session_id]) > self.max_history * 2:
+            self.conversations[session_id] = self.conversations[session_id][-(self.max_history * 2):]
+    
+    def get_history(self, session_id: str) -> List[Dict[str, str]]:
+        """获取对话历史"""
+        return self.conversations.get(session_id, [])
+    
+    def clear_history(self, session_id: str):
+        """清空对话历史"""
+        if session_id in self.conversations:
+            del self.conversations[session_id]
+
+conversation_manager = ConversationManager(max_history=10)
+
 # 创建FastAPI应用
 app = FastAPI(
     title="知识库系统", 
@@ -53,17 +80,18 @@ app.add_middleware(
 # API模型定义
 class QueryRequest(BaseModel):
     question: str
-    top_k: int = 5
-    use_reranker: bool = True
+    top_k: int = 3
+    use_reranker: bool = False
     reranker_model: str = "default"  # 重排序模型类型
+    session_id: Optional[str] = None  # 对话会话ID
 
 class DocumentAddRequest(BaseModel):
     source: str  # 文档路径或URL
 
 class SearchRequest(BaseModel):
     query: str
-    top_k: int = 5
-    use_reranker: bool = True
+    top_k: int = 3
+    use_reranker: bool = False
     reranker_model: str = "default"  # 重排序模型类型
 
 @app.on_event("startup")
@@ -246,17 +274,36 @@ async def search_documents(request: SearchRequest):
 @app.post("/chat/")
 async def chat_with_kb(request: QueryRequest):
     """与知识库对话"""
+    import uuid
     start_time = time.time()
     try:
-        logger.info(f"开始处理问答请求: {request.question[:50]}...")
+        # 生成或使用提供的 session_id
+        session_id = request.session_id or str(uuid.uuid4())
         
-        result = kb.ask(request.question, request.top_k, use_reranker=request.use_reranker, reranker_model=request.reranker_model)
+        logger.info(f"开始处理问答请求: {request.question[:50]}... (session_id: {session_id})")
+        
+        # 获取对话历史
+        history = conversation_manager.get_history(session_id)
+        
+        # 调用 ask 方法，传入历史对话
+        result = kb.ask(
+            request.question, 
+            request.top_k, 
+            use_reranker=request.use_reranker, 
+            reranker_model=request.reranker_model,
+            conversation_history=history
+        )
+        
+        # 保存用户问题和模型答案到历史
+        conversation_manager.add_message(session_id, "user", request.question)
+        conversation_manager.add_message(session_id, "assistant", result['answer'])
         
         response_time = time.time() - start_time
         logger.info(f"问答处理完成，响应时间: {response_time:.2f}秒")
         log_model_interaction(request.question, result['answer'])
         
         return {
+            "session_id": session_id,
             "question": request.question,
             "answer": result['answer'],
             "sources": result['sources'],
@@ -272,6 +319,17 @@ async def chat_with_kb(request: QueryRequest):
         logger.error(f"问答失败: {str(e)}")
         logger.error(f"堆栈跟踪: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"问答失败: {str(e)}")
+
+@app.post("/chat/clear-history/")
+async def clear_chat_history(session_id: str):
+    """清空对话历史"""
+    try:
+        conversation_manager.clear_history(session_id)
+        logger.info(f"已清空会话 {session_id} 的对话历史")
+        return {"status": "success", "message": f"已清空会话 {session_id} 的对话历史"}
+    except Exception as e:
+        logger.error(f"清空对话历史失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"清空对话历史失败: {str(e)}")
 
 
 if __name__ == "__main__":

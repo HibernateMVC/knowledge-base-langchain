@@ -175,20 +175,33 @@ class UniversalBGEReranker:
             if response.status_code == 200:
                 result = response.json()
                 results = []
+                seen_indices = set()  # 用于去重
                 
                 if 'results' in result:
                     for i, item in enumerate(result['results']):
                         doc_idx = item.get('index', i)
+                        
+                        # 去重：跳过已经出现过的文档
+                        if doc_idx in seen_indices:
+                            logger.warning(f"检测到重复的文档索引 {doc_idx}，已跳过")
+                            continue
+                        
+                        seen_indices.add(doc_idx)
                         score = item.get('relevance_score', 0.0)
+                        
+                        # 确保分数不完全相同（添加微小差异以区分）
+                        # 如果分数相同，根据排序位置添加微小差异
+                        adjusted_score = float(score) - (i * 0.0001)
+                        
                         results.append({
                             'index': doc_idx,
                             'score': float(score),
                             'text': documents[doc_idx] if doc_idx < len(documents) else '',
                             'original_rank': doc_idx,
-                            'rerank_score': float(score)
+                            'rerank_score': adjusted_score
                         })
                 
-                logger.debug(f"Jina API重排序完成，处理了 {len(documents)} 个文档，返回 {len(results)} 个结果")
+                logger.debug(f"Jina API重排序完成，处理了 {len(documents)} 个文档，返回 {len(results)} 个结果（去重后）")
                 return results
             else:
                 logger.warning(f"Jina API重排序请求失败: {response.status_code}, {response.text}")

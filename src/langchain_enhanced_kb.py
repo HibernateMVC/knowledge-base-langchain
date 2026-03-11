@@ -1,10 +1,11 @@
 """LangChain增强版知识库主类"""
 from typing import List, Dict, Any
 from .models.es_vector_store import ElasticSearchClient
-from .utils.embedding_client import EmbeddingClient
 from .utils.document_loader import DocumentLoader
 from .utils.logger import logger
+from .config.settings import Config
 from .langchain_integration.qwen_model import QwenLLMWrapper
+from .langchain_integration.embeddings import DashScopeEmbeddings
 from .langchain_integration.es_vector_store_wrapper import ElasticSearchVectorStore
 from .langchain_integration.chains import RAGChain, QuestionRephraseChain, ComparativeAnswerChain
 import os
@@ -17,13 +18,13 @@ class LangChainEnhancedKnowledgeBase:
     def __init__(self):
         # 初始化原有组件
         self.es_client = ElasticSearchClient()
-        self.embedding_client = EmbeddingClient()
         
         # 初始化LangChain组件
         self.llm = QwenLLMWrapper()
+        self.embeddings = DashScopeEmbeddings()
         self.vector_store = ElasticSearchVectorStore(
             es_client=self.es_client,
-            embedding_function=None  # 使用内部的embedding_client
+            embedding_function=self.embeddings
         )
         
         # 创建各种链
@@ -127,7 +128,7 @@ class LangChainEnhancedKnowledgeBase:
         logger.info(f"从 {source} 加载并添加文档完成，使用分块大小: {chunk_size}，重叠: {chunk_overlap}")
         return ids
     
-    def search(self, query: str, top_k: int = 5, use_reranker: bool = True, reranker_model: str = "default"):
+    def search(self, query: str, top_k: int = 3, use_reranker: bool = False, reranker_model: str = "default"):
         """搜索相关文档"""
         if not self.is_initialized:
             raise RuntimeError("知识库未初始化")
@@ -143,12 +144,75 @@ class LangChainEnhancedKnowledgeBase:
         logger.info(f"搜索完成，返回 {len(results)} 个结果")
         return results
     
-    def ask(self, question: str, top_k: int = 5, use_reranker: bool = True, reranker_model: str = "default"):
+    def ask(self, question: str, top_k: int = 3, use_reranker: bool = False, reranker_model: str = "default", conversation_history: List[Dict[str, str]] = None):
         """使用LangChain RAG链提问并获取答案"""
+        if conversation_history is None:
+            conversation_history = []
+        
         # 优先使用动态提示生成器分析文档类型
         try:
+            def _is_greeting(q: str) -> bool:
+                qn = (q or "").strip().lower()
+                if not qn:
+                    return True
+                # 极短寒暄/问候
+                greetings = ["你好", "您好", "嗨", "hi", "hello", "hey", "在吗", "在么", "在不在"]
+                return (len(qn) <= 6) and any(g in qn for g in greetings)
+
+            def _general_chat_answer(user_q: str) -> Dict[str, Any]:
+                # 构建包含历史对话的提示
+                history_text = ""
+                if conversation_history:
+                    history_text = "对话历史：\n"
+                    for msg in conversation_history[-4:]:  # 只保留最近4条消息
+                        role = "用户" if msg["role"] == "user" else "助手"
+                        history_text += f"{role}：{msg['content']}\n"
+                    history_text += "\n"
+                
+                chat_prompt = (
+                    "你是一个企业知识库助手。当前知识库中没有与用户问题直接相关的文档可以引用。\n"
+                    "请作为一个友好、礼貌的智能助手，根据自己的常识和通用知识来回答用户的问题。\n"
+                    "如果问题只是打招呼或寒暄，请用自然的中文简短回复即可。\n\n"
+                    f"{history_text}"
+                    f"用户问题：{user_q}\n"
+                )
+                answer_text = self.llm._call(chat_prompt)
+                return {
+                    "answer": answer_text,
+                    "sources": [],
+                    "search_results": [],
+                    "structured_response": {},
+                    "prompt_strategy": "general_chat",
+                    "answer_type": "general_chat",
+                }
+
+            # 寒暄类问题直接走通用对话（避免无意义检索并返回 N/A）
+            if _is_greeting(question):
+                logger.info("检测到寒暄/问候类问题，切换为通用对话模式")
+                return _general_chat_answer(question)
+
             # 搜索相关文档
             search_results = self.search(question, top_k, use_reranker=use_reranker, reranker_model=reranker_model)
+            
+            # 如果知识库中没有检索到相关文档，则切换为通用对话模式
+            if not search_results:
+                logger.info("未检索到相关文档，切换为通用对话模式回答用户问题")
+                return _general_chat_answer(question)
+
+            # 如果检索到了结果，但相关度非常低，也切换为通用对话模式
+            try:
+                best_score = max(
+                    float(r.get("rerank_score", r.get("hybrid_score", 0.0)) or 0.0)
+                    for r in search_results
+                )
+            except Exception:
+                best_score = 0.0
+
+            if best_score < Config.RAG_MIN_RELEVANCE_SCORE:
+                logger.info(
+                    f"检索结果相关度过低(best_score={best_score:.4f} < {Config.RAG_MIN_RELEVANCE_SCORE})，切换为通用对话模式"
+                )
+                return _general_chat_answer(question)
             
             # 构建上下文
             context_parts = []
@@ -170,12 +234,25 @@ class LangChainEnhancedKnowledgeBase:
             
             context = "\n\n".join(context_parts)
             
+            # 构建包含历史对话的提示前缀
+            history_text = ""
+            if conversation_history:
+                history_text = "对话历史：\n"
+                for msg in conversation_history[-4:]:  # 只保留最近4条消息
+                    role = "用户" if msg["role"] == "user" else "助手"
+                    history_text += f"{role}：{msg['content']}\n"
+                history_text += "\n"
+            
             # 使用动态提示生成器根据上下文生成适应性提示
             from .prompts import dynamic_prompt_generator
             adaptive_prompt = dynamic_prompt_generator.generate_context_aware_prompt(
                 question=question,
                 context=context
             )
+            
+            # 在提示前面添加历史对话
+            if history_text:
+                adaptive_prompt = history_text + adaptive_prompt
             
             # 使用模型直接回答
             response = self.llm._call(adaptive_prompt)

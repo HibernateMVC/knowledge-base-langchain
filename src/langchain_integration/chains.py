@@ -2,7 +2,7 @@
 from typing import Dict, Any, List, Optional
 from langchain_core.runnables import Runnable
 from langchain_core.prompts import PromptTemplate
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from langchain_core.output_parsers import BaseOutputParser
 from .qwen_model import QwenLLMWrapper
 from .es_vector_store_wrapper import ElasticSearchVectorStore
@@ -234,8 +234,9 @@ class RAGChain:
             输出结果
         """
         question = inputs["question"]
-        top_k = inputs.get("top_k", 5)
-        use_reranker = inputs.get("use_reranker", True)
+        top_k = inputs.get("top_k", 3)
+        # 默认关闭重排序以提升响应速度，如有需要可在请求中显式开启
+        use_reranker = inputs.get("use_reranker", False)
         reranker_model = inputs.get("reranker_model", "default")
 
         # 步骤1: 搜索相关文档
@@ -246,12 +247,25 @@ class RAGChain:
             reranker_model=reranker_model
         )
         
-        # 构建上下文
+        # 构建上下文 - 控制单段和整体长度，避免提示词过长
+        max_total_chars = 4000
+        max_per_doc_chars = 1000
+        current_length = 0
         context_parts = []
         sources = []
 
         for result in search_results:
-            context_parts.append(result['content'])
+            content = result.get('content', '') or ''
+            # 先对单个文档内容做截断
+            truncated = content[:max_per_doc_chars]
+            # 再控制整体上下文长度
+            remaining = max_total_chars - current_length
+            if remaining <= 0:
+                break
+            if len(truncated) > remaining:
+                truncated = truncated[:remaining]
+            context_parts.append(truncated)
+            current_length += len(truncated)
             # 优先使用重排序得分，如果没有则使用混合得分
             score = result.get('rerank_score', result.get('hybrid_score', 0.0))
             sources.append({
@@ -281,8 +295,13 @@ class RAGChain:
         else:  # 默认为 string
             prompt_template = LangChainPrompts.get_adaptive_string_qa_prompt()
         
-        # 格式化提示
-        formatted_prompt = prompt_template.format(context=context, question=question)
+        # 格式化提示 - 需要小心处理JSON Schema中的花括号
+        # 避免将JSON Schema中的变量名当作format参数处理
+        template_str = prompt_template.template
+        # 临时转义JSON Schema部分的花括号
+        import re
+        # 找到context和question变量并替换，但保持JSON Schema不变
+        formatted_prompt = template_str.replace("{context}", context).replace("{question}", question)
         
         try:
             # 步骤3: 调用语言模型
@@ -306,7 +325,9 @@ class RAGChain:
             logger.error(f"结构化问答失败: {str(e)}，回退到基础问答")
             
             # 如果结构化问答失败，回退到基础问答
-            basic_prompt = LangChainPrompts.basic_rag_prompt.format(context=context, question=question)
+            # 避免将JSON Schema中的变量名当作format参数处理
+            template_str = LangChainPrompts.basic_rag_prompt.template
+            basic_prompt = template_str.replace("{context}", context).replace("{question}", question)
             answer = self.llm.invoke(basic_prompt)
             
             return {

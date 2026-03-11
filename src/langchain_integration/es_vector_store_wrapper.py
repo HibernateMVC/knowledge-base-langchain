@@ -20,6 +20,9 @@ import numpy as np
 class ElasticSearchVectorStore(VectorStore):
     """LangChain兼容的Elasticsearch向量存储包装器"""
     
+    # 实测阿里 text-embedding-v4 同步接口单次最大 batch 为 10
+    _EMBED_BATCH_SIZE = 10
+    
     def __init__(
         self,
         es_client: ElasticSearchClient,
@@ -37,7 +40,7 @@ class ElasticSearchVectorStore(VectorStore):
         self.es_client = es_client
         self.embedding_function = embedding_function
         super().__init__()
-    
+
     def add_texts(
         self,
         texts: List[str],
@@ -45,7 +48,7 @@ class ElasticSearchVectorStore(VectorStore):
         **kwargs: Any,
     ) -> List[str]:
         """
-        添加文本到向量存储
+        添加文本到向量存储（批量 embedding 以减少 API 调用次数）
         
         Args:
             texts: 文本列表
@@ -55,30 +58,40 @@ class ElasticSearchVectorStore(VectorStore):
         Returns:
             IDs列表
         """
-        ids = []
+        if not texts:
+            return []
+
+        metadatas = metadatas or []
+
+        # 获取 embedding 函数
+        if not self.embedding_function:
+            from src.langchain_integration.embeddings import DashScopeEmbeddings
+            self.embedding_function = DashScopeEmbeddings()
         
-        for i, text in enumerate(texts):
-            # 生成嵌入向量
-            if self.embedding_function:
-                embedding = self.embedding_function.embed_query(text)
-            else:
-                # 使用项目原有的嵌入客户端
-                from src.utils.embedding_client import EmbeddingClient
-                embedding_client = EmbeddingClient()
-                embedding = embedding_client.embed_query(text)
-            
-            # 准备元数据
-            metadata = metadatas[i] if metadatas and i < len(metadatas) else {}
-            
-            # 添加到向量数据库
-            result_id = self.es_client.add_document(
-                content=text,
-                vector=embedding,
-                metadata=metadata
+        def _embed_batch(batch: List[str]) -> List[List[float]]:
+            return self.embedding_function.embed_documents(batch)
+
+        # 按批量化并获取所有向量
+        all_embeddings: List[List[float]] = []
+        for i in range(0, len(texts), self._EMBED_BATCH_SIZE):
+            batch = texts[i : i + self._EMBED_BATCH_SIZE]
+            embeddings = _embed_batch(batch)
+            all_embeddings.extend(embeddings)
+
+        # 批量写入向量数据库
+        docs_to_index = []
+        for i, (text, embedding) in enumerate(zip(texts, all_embeddings)):
+            metadata = metadatas[i] if i < len(metadatas) else {}
+            docs_to_index.append(
+                {
+                    "content": text,
+                    "vector": embedding,
+                    "metadata": metadata,
+                }
             )
-            
-            ids.append(result_id)
-            
+
+        ids = self.es_client.bulk_add_documents(docs_to_index)
+
         logger.info(f"成功添加 {len(ids)} 个文档到向量存储")
         return ids
     
